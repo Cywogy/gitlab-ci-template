@@ -1,0 +1,66 @@
+stages:
+  - build
+  - deploy
+
+variables:
+  TAG: $CI_COMMIT_BRANCH-$CI_COMMIT_SHORT_SHA
+  COMPOSE_DIR: /opt/docker/<your_app>  ### Change
+
+# ========================================================================================================================
+# build template job - build app and prepare artifacts for publish
+# ========================================================================================================================
+
+.build:
+  stage: build
+  when: manual
+  script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker pull $CI_REGISTRY_IMAGE/$IMAGENAME:latest || true
+    - DOCKER_BUILDKIT=1
+    - docker build --cache-from $CI_REGISTRY_IMAGE/$IMAGENAME:latest --build-arg BUILDKIT_INLINE_CACHE=1 --build-arg APPNAME="$APPNAME" --build-arg APPATH="${APPATH:-}" --build-arg SRCDIR="${SRCDIR:-src}" -t "$CI_REGISTRY_IMAGE/$IMAGENAME:$TAG" -t "$CI_REGISTRY_IMAGE/$IMAGENAME:latest" .
+    - docker push $CI_REGISTRY_IMAGE/$IMAGENAME:$TAG
+    - docker push $CI_REGISTRY_IMAGE/$IMAGENAME:latest
+    - docker image rm $CI_REGISTRY_IMAGE/$IMAGENAME:latest
+  tags:
+    - docker
+    - app
+  retry: 1
+
+# ========================================================================================================================
+# deploy job template - deploy app to  docker
+# ========================================================================================================================
+
+.deploy:
+  stage: deploy
+  when: manual
+  script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - cd $COMPOSE_DIR
+    - sed -i "s,image:\ $CI_REGISTRY_IMAGE/$IMAGENAME.*,image:\ $CI_REGISTRY_IMAGE/$IMAGENAME:$TAG,g" docker-compose.yml
+    - docker-compose pull $IMAGENAME
+    - docker-compose up -d $IMAGENAME
+  tags:
+    - shell
+    - app
+  retry: 1
+
+# ========================================================================================================================
+# BUILD JOBS
+# ========================================================================================================================
+
+Build <your_app>:  ### Change
+  extends: .build
+  variables:
+    APPNAME: "Your.App"  ### Change
+    IMAGENAME: "your_app"  ### Change
+
+# ========================================================================================================================
+# DEPLOY JOBS
+# ========================================================================================================================
+
+Deploy <your_app>:  ### Change
+  extends: .deploy
+  variables:
+    IMAGENAME: "your_app"  ### Change
+  needs:
+    - Build your_app  ### Change
